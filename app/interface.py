@@ -16,7 +16,7 @@ from trainer.trainer import train_model_generator, stop_training
 from inference.inference import generate_text
 
 
-def build_app_interface(selected_lang="zh"):
+def build_app_interface(selected_lang="en"):
     T = LANG_JSON[selected_lang]
 
     custom_css = """
