@@ -1,0 +1,6 @@
+numpy>=1.22.0
+tiktoken>=0.3.0
+torch>=2.0.0
+gradio>=3.0.0
+matplotlib>=3.5.0
+Pillow>=9.0.0
