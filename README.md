@@ -13,7 +13,7 @@ Mini-NanoGPT is a tool that helps you easily get started with GPT models. Whethe
 - 👨‍🔬 A researcher
 - 🛠️ A developer
 
-Or just someone interested in experiencing the魅力 of large models,
+Or just someone interested in experiencing the charm of large models,
 
 You can train models through a simple graphical interface!
 
