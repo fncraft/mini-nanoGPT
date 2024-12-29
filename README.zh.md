@@ -46,7 +46,7 @@ pip install -r requirements.txt
 ```bash
 python main.py
 ```
-打开浏览器访问显示的链接（一般是 http://localhost:7860），就能看到训练界面了！
+打开浏览器访问显示的链接，就能看到训练界面了！（一般是 http://localhost:7860）
 
 ## 🎮 使用指南
 
