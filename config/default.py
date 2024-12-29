@@ -59,6 +59,6 @@ DEFAULT_CONFIG = {
         "seed": 1024,
         "device": "cuda",
         "dtype": "float16",
-        "compile_model": True
+        "compile_model": False
     }
 }
