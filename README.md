@@ -1,4 +1,4 @@
-[Chinese](README.zh.md)
+[中文](README.zh.md)
 
 # Mini NanoGPT 🚀
 
