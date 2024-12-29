@@ -57,7 +57,8 @@ Open your browser and visit the displayed link to see the training interface! (U
   
   Here's an example using a small piece of text:
   
-  ![image](https://github.com/user-attachments/assets/ec8db0d6-5673-43ae-a4cb-ac064f7209ae)
+![image](https://github.com/user-attachments/assets/667d1fb4-9f9a-4d3a-8574-894be7c71bc6)
+
 
 ### Step 2: Train the Model
 - Switch to the "Training" page and adjust the parameters as needed (if you just want to experience it, you can keep the default values).
@@ -70,7 +71,8 @@ Open your browser and visit the displayed link to see the training interface! (U
 - This way, you should be able to see two dynamically changing curves normally.
 - Click "Start Training" and wait for the model training to complete.
   
-  ![image](https://github.com/user-attachments/assets/75e53570-393b-48db-aac3-f9b6822d05b1)
+![image](https://github.com/user-attachments/assets/61b1f55e-5a9e-45e4-af9e-0c58f8a2be7e)
+
 
 #### Evaluation-Only Mode?
 - This mode allows you to evaluate the model's loss on the validation set. Set the `Number of Evaluation Seeds` to any value greater than 0 to enable evaluation-only mode. You can see the model's loss with different seeds.
@@ -80,7 +82,8 @@ Open your browser and visit the displayed link to see the training interface! (U
 2. Enter an opening text
 3. Click "Generate" to see what the model writes!
 
-![image](https://github.com/user-attachments/assets/5f985e89-d7c2-4f3a-9500-5713497148cd)
+![image](https://github.com/user-attachments/assets/dcebc48a-69c2-4008-b6b4-3fec060a75fb)
+
 
 ## 📁 Project Structure
 ```
