@@ -35,7 +35,7 @@ Mini-NanoGPT 是一个帮助你轻松入门 GPT 模型的工具。无论你是�
 ### 1. 环境准备
 ```bash
 # 克隆仓库
-git clone https://github.com/yourname/mini-nanogpt.git
+git clone --depth 1 https://github.com/ystemsrx/mini-nanoGPT.git
 cd mini-nanogpt
 
 # 安装依赖（Python 3.7+）
