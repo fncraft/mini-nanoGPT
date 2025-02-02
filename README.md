@@ -35,7 +35,7 @@ You can train models through a simple graphical interface!
 ### 1. Set Up the Environment
 ```bash
 # Clone the repository
-git clone https://github.com/yourname/mini-nanogpt.git
+git clone -- depth 1 https://github.com/ystemsrx/mini-nanoGPT.git
 cd mini-nanogpt
 
 # Install dependencies (Python 3.7+)
