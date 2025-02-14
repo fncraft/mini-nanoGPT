@@ -1,4 +1,10 @@
-# Add new language here
+"""
+config/languages.py
+
+This file stores the multi-language dictionary (LANG_JSON). 
+It is used by the Gradio interface to provide UI labels in English or Chinese.
+You can add more languages by extending the dictionary with new key-value pairs.
+"""
 
 LANG_JSON = {
     "en": {
