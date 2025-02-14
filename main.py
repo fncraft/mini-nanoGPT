@@ -16,11 +16,12 @@ Compared to the original nanoGPT, this project adds more practical features and 
 Built with PyTorch and Gradio, featuring clean code structure, perfect for deep learning beginners and researchers.
 """
 
-from app.interface import build_app_interface
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True
 
-def main():
+from modules.interface import build_app_interface
+
+if __name__ == "__main__":
     demo = build_app_interface()
     demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
 
-if __name__ == "__main__":
-    main()
