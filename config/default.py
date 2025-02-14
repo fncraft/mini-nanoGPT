@@ -1,9 +1,19 @@
+"""
+config/default.py
+
+This file stores the default configuration dictionary (DEFAULT_CONFIG) 
+which holds data processing, training, and inference default parameters.
+
+We also define IntegerTypes (used for data processing).
+"""
+
 import numpy as np
 from multiprocessing import cpu_count
 
+# Integer data type used for saving tokenized data
 IntegerTypes = np.uint32
 
-# ------------------- default config -------------------
+# Default configurations
 DEFAULT_CONFIG = {
     "data_process": {
         "raw_data_dir": "./data/raw",
@@ -59,6 +69,6 @@ DEFAULT_CONFIG = {
         "seed": 1024,
         "device": "cuda",
         "dtype": "float16",
-        "compile_model": False
+        "compile_model": True
     }
 }
