@@ -88,11 +88,9 @@ python main.py
 mini-nanogpt/
 ├── main.py          # 启动程序
 ├── config/          # 配置文件
-├── data/           # 数据处理及保存
-├── models/         # 模型定义
-├── trainer/        # 训练相关
-├── inference/      # 推理生成
-└── app/            # 界面相关
+├── data/            # 数据处理和存储
+├── modules/         # 模型定义、推理生成、接口相关
+└── trainer/         # 训练相关
 ```
 
 ## ❓ 常见问题
