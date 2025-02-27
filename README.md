@@ -91,7 +91,7 @@ mini-nanogpt/
 ├── main.py          # Launch program
 ├── config/          # Configuration files
 ├── data/            # Data processing and storage
-├── modules/          # Model definitions, Inference generation, Interface related
+├── modules/         # Model definitions, Inference generation, Interface related
 └── trainer/         # Training-related        
 ```
 
