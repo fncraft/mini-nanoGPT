@@ -26,7 +26,7 @@ DEFAULT_CONFIG = {
         "processed_data_dir": "./data/processed",
         "train_split_ratio": 0.9,
         "no_validation": False,
-        "use_gpt2_tokenizer": False,
+        "use_gpt2_tokenizer": True,
         "num_proc": cpu_count() // 2
     },
     "training": {
