@@ -10,6 +10,12 @@ We also define IntegerTypes (used for data processing).
 import numpy as np
 from multiprocessing import cpu_count
 
+import torch
+if torch.cuda.is_available():
+    selected_device = "cuda"
+else:
+    selected_device = "cpu"
+
 # Integer data type used for saving tokenized data
 IntegerTypes = np.uint32
 
@@ -52,7 +58,7 @@ DEFAULT_CONFIG = {
         "step_gamma": 0.1,
         "polynomial_power": 2.0,
         "backend": "nccl",
-        "device": "cuda",
+        "device": selected_device,
         "dtype": "float16",
         "compile_model": False,
         "seed": 1024,
