@@ -17,6 +17,8 @@ Or just someone interested in experiencing the charm of large models,
 
 You can train models through a simple graphical interface!
 
+> For enhanced model management capabilities, check out the [**database** branch](https://github.com/ystemsrx/mini-nanoGPT/tree/database).
+
 ## ✨ Key Features
 
 ### 1. Simple and Easy to Use
