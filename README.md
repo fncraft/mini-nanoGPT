@@ -27,7 +27,7 @@ You can train models through a simple graphical interface!
 - 🎯 **One-Click Operations**: Data processing, training, and text generation can all be done with a single click.
 
 ### 2. Powerful Functionality
-- 🔤 **Flexible Tokenization**: Supports character-level and GPT-2 tokenizers (better support for English).
+- 🔤 **Flexible Tokenization**: Supports character-level, GPT-2, or Qwen tokenizers, with multilingual support.
 - 🚄 **Efficient Training**: Supports multi-processing acceleration and distributed training.
 - 📊 **Real-Time Feedback**: Displays training progress and results in real time.
 - ⚙️ **Parameter Visualization**: All training parameters can be directly adjusted in the interface.
@@ -53,7 +53,7 @@ Open your browser and visit the displayed link to see the training interface! (U
 ## 🎮 User Guide
 
 ### Step 1: Prepare Data
-- Open the "Data Processing" page, select or paste your training text, and choose the tokenization method. For English text, using the GPT-2 tokenizer can yield better results. For Chinese, you can keep the default.
+- Open the "Data Processing" page, select or paste your training text, and choose the tokenization method. For better results, you can check the option to use a tokenizer, which will automatically build a vocabulary based on your text content.
 - If you do not want to use a validation set for now, you can check "Do not use a validation set."
 - After completion, click "Start Processing."
   
