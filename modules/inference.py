@@ -1,137 +1,648 @@
 """
-modules/inference.py
+modules/interface.py
 
-This file contains the function to load a GPT model checkpoint and generate text 
-based on a given prompt. It now properly handles CPU-only devices by mapping 
-the checkpoint storage to CPU when CUDA is not available.
+This file builds a Gradio-based user interface for data processing, training, 
+and inference (text generation).
+
+Function:
+- build_app_interface(selected_lang="zh")
 """
 
 import os
-import torch
-import torch.nn.functional as F
-import pickle
-from contextlib import nullcontext
+import gradio as gr
+from PIL import Image
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import io
 
+from config.languages import LANG_JSON
 from config.default import DEFAULT_CONFIG
-from modules.gpt import GPT, GPTConfig
+from data.data import process_data
+from trainer.trainer import stop_training, train_model_generator
+from modules.inference import generate_text
 
 
-def generate_text(
-    data_dir=DEFAULT_CONFIG["inference"]["data_dir"],
-    out_dir=DEFAULT_CONFIG["inference"]["out_dir"],
-    prompt=DEFAULT_CONFIG["inference"]["prompt"],
-    num_samples=DEFAULT_CONFIG["inference"]["num_samples"],
-    max_new_tokens=DEFAULT_CONFIG["inference"]["max_new_tokens"],
-    temperature=DEFAULT_CONFIG["inference"]["temperature"],
-    top_k=DEFAULT_CONFIG["inference"]["top_k"],
-    seed=DEFAULT_CONFIG["inference"]["seed"],
-    device=DEFAULT_CONFIG["inference"]["device"],
-    dtype=DEFAULT_CONFIG["inference"]["dtype"],
-    compile_model=DEFAULT_CONFIG["inference"]["compile_model"]
-):
+def build_app_interface(selected_lang="zh"):
     """
-    Generates text from a single checkpoint. If the checkpoint is not found,
-    yields an error message. For each sample, tokens are generated one at a time 
-    until 'max_new_tokens' is reached.
+    Builds a Gradio UI that supports:
+    - Data processing (merging text files, tokenizing, saving train/val sets).
+    - Training (with real-time logs and plots).
+    - Inference (generate text from a trained checkpoint).
 
-    :yield: Intermediate strings or final generated strings for each sample.
+    :param selected_lang: The default UI language ('en' or 'zh').
+    :return: A Gradio Blocks interface object.
     """
-    if not prompt.strip():
-        yield "Prompt is empty, please provide a starting text."
-        return
+    T = LANG_JSON[selected_lang]
 
-    try:
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(seed)
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+    # Custom CSS to adjust some style
+    custom_css = """
+    .gradio-container {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    }
+    .label-wrap .label-text {
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        display: block !important;
+        margin-bottom: 8px !important;
+    }
+    .custom-log-container {
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: #ffffff;
+        margin-top: 4px;
+        padding: 8px;
+    }
+    #train-log-box {
+        height: 150px !important;
+        min-height: 150px !important;
+        max-height: 150px !important;
+        overflow-y: auto !important;
+        font-family: monospace;
+        padding: 8px;
+        margin-bottom: 0 !important;
+        background: white;
+    }
+    progress {
+        width: 100%;
+        height: 20px;
+        margin: 4px 0;
+    }
+    .gap.compact {
+        gap: 0.5rem !important;
+    }
+    """
 
-        # Determine the appropriate device (CPU or CUDA)
-        device_obj = torch.device(device) if torch.cuda.is_available() and "cuda" in device else torch.device('cpu')
-        ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
-        ctx = nullcontext() if device_obj.type == 'cpu' else torch.amp.autocast(device_type=device_obj.type, dtype=ptdtype)
+    with gr.Blocks(title=T["app_title"], css=custom_css) as demo:
+        # Dropdown to switch language
+        lang_select = gr.Dropdown(
+            choices=list(LANG_JSON.keys()),
+            value=selected_lang,
+            label=T["language_label"],
+            interactive=True
+        )
 
-        # Determine checkpoint path
-        if out_dir.endswith('.pt'):
-            ckpt_path = out_dir
-        else:
-            ckpt_path = os.path.join(out_dir, 'ckpt.pt')
-        if not os.path.exists(ckpt_path):
-            yield f"Error: checkpoint not found at {ckpt_path}."
-            return
+        with gr.Tabs() as main_tabs:
+            # ----------------- Data Processing Tab -----------------
+            with gr.Tab(T["data_process_tab"]) as data_process_tab:
+                with gr.Row():
+                    input_text = gr.Textbox(placeholder="Paste your text here...", label=T["dp_paste_text"], lines=19.5)
+                    with gr.Column():
+                        txt_dir = gr.Textbox(label=T["dp_txt_dir"], value="")
+                        with gr.Row():
+                            raw_dir = gr.Textbox(label=T["dp_raw_dir"], value=DEFAULT_CONFIG["data_process"]["raw_data_dir"])
+                            processed_dir = gr.Textbox(label=T["dp_processed_dir"], value=DEFAULT_CONFIG["data_process"]["processed_data_dir"])
+                        with gr.Row():
+                            no_val_set = gr.Checkbox(label=T["dp_no_val_set"], value=DEFAULT_CONFIG["data_process"]["no_validation"], interactive=True)
+                            use_gpt2 = gr.Checkbox(label=T["dp_use_gpt2_tokenizer"], value=DEFAULT_CONFIG["data_process"]["use_gpt2_tokenizer"], interactive=True)
+                        train_split = gr.Slider(label=T["dp_train_split"], minimum=0.1, maximum=0.99, step=0.01, value=DEFAULT_CONFIG["data_process"]["train_split_ratio"])
+                        num_proc = gr.Number(label=T["dp_num_proc"], value=DEFAULT_CONFIG["data_process"]["num_proc"], precision=0, interactive=True)
+                process_btn = gr.Button(T["dp_start_btn"])
+                process_output = gr.Textbox(label=T["dp_result"], lines=5)
 
-        # Load the checkpoint with appropriate map_location
-        checkpoint = torch.load(ckpt_path, map_location=device_obj)
-        gptconf = GPTConfig(**checkpoint['model_args'])
-        model = GPT(gptconf)
-        state_dict = checkpoint['model']
-        unwanted_prefix = '_orig_mod.'
-        for k, v in list(state_dict.items()):
-            if k.startswith(unwanted_prefix):
-                state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
-        model.load_state_dict(state_dict)
-        model.eval()
-        model.to(device_obj)
-        if compile_model:
-            model = torch.compile(model)
+            # ----------------- Training Tab -----------------
+            with gr.Tab(T["train_tab"]) as train_tab:
+                train_params_title_md = gr.Markdown(f"### {T['train_params_title']}")
 
-        # Load metadata (tokenizer information)
-        meta_path = os.path.join(data_dir, 'meta.pkl')
-        if not os.path.exists(meta_path):
-            yield f"Error: meta.pkl not found at {meta_path}."
-            return
-        with open(meta_path, 'rb') as f:
-            meta = pickle.load(f)
-        stoi, itos = meta['stoi'], meta['itos']
+                with gr.Row():
+                    data_dir_box = gr.Textbox(label=T["train_data_dir"], value=DEFAULT_CONFIG["training"]["data_dir"], interactive=True)
+                    out_dir_box = gr.Textbox(label=T["train_out_dir"], value=DEFAULT_CONFIG["training"]["out_dir"], interactive=True)
+                    backend_box = gr.Textbox(label=T["train_backend"], value=DEFAULT_CONFIG["training"]["backend"], interactive=True)
+                    device_box = gr.Dropdown(
+                        label=T["train_device"],
+                        choices=["cpu", "cuda"],
+                        value=DEFAULT_CONFIG["training"]["device"],
+                        interactive=True
+                    )
+                    dtype_box = gr.Dropdown(
+                        label=T["train_dtype"],
+                        choices=["float16", "bfloat16", "float32"],
+                        value=DEFAULT_CONFIG["training"]["dtype"],
+                        interactive=True
+                    )
+                    compile_box = gr.Checkbox(label=T["train_compile_model"], value=DEFAULT_CONFIG["training"]["compile_model"], interactive=True)
 
-        # Define encode and decode helper functions
-        def encode(s):
-            return [stoi.get(ch, 0) for ch in s]
+                with gr.Row():
+                    plot_interval_box = gr.Number(label=T["train_eval_interval"], value=DEFAULT_CONFIG["training"]["plot_interval"], interactive=True)
+                    log_interval_box = gr.Number(label=T["train_log_interval"], value=DEFAULT_CONFIG["training"]["log_interval"], interactive=True)
+                    num_eval_seeds_box = gr.Number(label=T["train_num_eval_seeds"], value=DEFAULT_CONFIG["training"]["num_eval_seeds"], interactive=True)
+                    save_best_val_ckpt_box = gr.Checkbox(label=T["train_save_best_val_ckpt"], value=DEFAULT_CONFIG["training"]["save_best_val_checkpoint"], interactive=True)
+                    init_from_box = gr.Dropdown(
+                        label=T["train_init_from"],
+                        choices=["scratch", "resume"],
+                        value=DEFAULT_CONFIG["training"]["init_from"],
+                        interactive=True
+                    )
+                    seed_box = gr.Number(label=T["train_seed"], value=DEFAULT_CONFIG["training"]["seed"], interactive=True)
 
-        def decode(l):
-            # decoded_chars = [itos.get(i, '') for i in l]
-            # print(f"Decoding tokens: {l}", flush=True)
-            # print(f"Decoded string: {''.join(decoded_chars)}", flush=True)
-            return ''.join([itos.get(i, '') for i in l])
+                with gr.Row():
+                    grad_acc_box = gr.Number(label=T["train_gas"], value=DEFAULT_CONFIG["training"]["gradient_accumulation_steps"], interactive=True)
+                    batch_size_box = gr.Number(label=T["train_batch_size"], value=DEFAULT_CONFIG["training"]["batch_size"], interactive=True)
+                    block_size_box = gr.Number(label=T["train_block_size"], value=DEFAULT_CONFIG["training"]["block_size"], interactive=True)
+                    n_layer_box = gr.Number(label=T["train_n_layer"], value=DEFAULT_CONFIG["training"]["n_layer"], interactive=True)
+                    n_head_box = gr.Number(label=T["train_n_head"], value=DEFAULT_CONFIG["training"]["n_head"], interactive=True)
+                    n_embd_box = gr.Number(label=T["train_n_embd"], value=DEFAULT_CONFIG["training"]["n_embd"], interactive=True)
 
-        xids = torch.tensor(encode(prompt), dtype=torch.long, device=device_obj)[None, ...]
-        block_size = gptconf.block_size
-        if xids.size(1) > block_size:
-            yield f"Error: input length ({xids.size(1)}) exceeds block size ({block_size})."
-            return
+                with gr.Row():
+                    dropout_box = gr.Number(label=T["train_dropout"], value=DEFAULT_CONFIG["training"]["dropout"], interactive=True)
+                    bias_box = gr.Checkbox(label=T["train_bias"], value=DEFAULT_CONFIG["training"]["bias"], interactive=True)
+                    lr_box = gr.Number(label=T["train_lr"], value=DEFAULT_CONFIG["training"]["learning_rate"], interactive=True)
+                    max_iters_box = gr.Number(label=T["train_max_iters"], value=DEFAULT_CONFIG["training"]["max_iters"], interactive=True)
+                    weight_decay_box = gr.Number(label=T["train_weight_decay"], value=DEFAULT_CONFIG["training"]["weight_decay"], interactive=True)
 
-        # Generate text
-        with torch.no_grad():
-            with ctx:
-                for s_i in range(num_samples):
-                    idx = xids.clone()
-                    generated = prompt
-                    for token_iter in range(max_new_tokens):
-                        if idx.size(1) == 0:
-                            yield "Can't generate an empty sequence."
-                            return
-                        idx_cond = idx[:, -block_size:]
-                        logits, _ = model(idx_cond)
-                        logits = logits[:, -1, :] / temperature
-                        if top_k is not None and top_k > 0:
-                            v, _ = torch.topk(logits, top_k)
-                            top_value = v[:, -1].unsqueeze(-1)
-                            logits[logits < top_value] = -float('Inf')
-                        probs = F.softmax(logits, dim=-1)
-                        idx_next = torch.multinomial(probs, num_samples=1)
-                        idx = torch.cat((idx, idx_next), dim=1)
-                        generated_tokens = idx[0].tolist()
-                        generated = decode(generated_tokens)
-                        yield f"Sample {s_i+1} (iteration {token_iter+1}):\n{generated}"
-                    if s_i < num_samples - 1:
-                        yield "-" * 20
+                with gr.Row():
+                    beta1_box = gr.Number(label=T["train_beta1"], value=DEFAULT_CONFIG["training"]["beta1"], interactive=True)
+                    beta2_box = gr.Number(label=T["train_beta2"], value=DEFAULT_CONFIG["training"]["beta2"], interactive=True)
+                    lr_scheduler_box = gr.Dropdown(
+                        label=T["train_lr_scheduler"],
+                        choices=["none", "cosine", "constant_with_warmup", "linear", "step", "polynomial"],
+                        value=DEFAULT_CONFIG["training"]["lr_scheduler_type"],
+                        interactive=True
+                    )
+                    warmup_box = gr.Number(label=T["train_warmup_iters"], value=DEFAULT_CONFIG["training"]["warmup_iters"], interactive=True)
+                    lr_decay_box = gr.Number(label=T["train_lr_decay_iters"], value=DEFAULT_CONFIG["training"]["lr_decay_iters"], interactive=True)
+                    min_lr_box = gr.Number(label=T["train_min_lr"], value=DEFAULT_CONFIG["training"]["min_lr"], interactive=True)
 
-        final_output = generated.strip() if generated else ""
-        if final_output:
-            yield final_output
-        else:
-            yield "No text generated."
+                with gr.Row():
+                    step_size_box = gr.Number(label="Step Size (for step decay)", value=DEFAULT_CONFIG["training"]["step_size"], interactive=True)
+                    step_gamma_box = gr.Number(label="Step Gamma (for step decay)", value=DEFAULT_CONFIG["training"]["step_gamma"], interactive=True)
+                    polynomial_power_box = gr.Number(label="Polynomial Power (for polynomial decay)", value=DEFAULT_CONFIG["training"]["polynomial_power"], interactive=True)
+                    save_interval_box = gr.Number(label=T["train_save_interval"], value=DEFAULT_CONFIG["training"]["save_interval"], interactive=True)
 
-    except Exception as ex:
-        yield f"An unexpected error occurred: {str(ex)}"
+                train_btn = gr.Button(T["train_start_btn"])
+                stop_btn = gr.Button(T["stop_btn"])
+
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        train_progress = gr.HTML(label="Training Progress")
+                        train_log = gr.Textbox(label=T["train_log"], elem_id="train-log-box", elem_classes="custom-log-container")
+                    with gr.Column(scale=2):
+                        train_plot = gr.Image(label=T["train_plot"], type="pil")
+
+            # ----------------- Inference Tab -----------------
+            with gr.Tab(T["infer_tab"]) as inf_tab:
+                with gr.Row():
+                    data_dir_inf = gr.Textbox(label=T["dp_processed_dir"], value=DEFAULT_CONFIG["inference"]["data_dir"])
+                    # Default to out/ckpt.pt for convenience
+                    out_dir_inf = gr.Textbox(label=T["inf_out_dir"], value="out/ckpt.pt")
+                prompt_box = gr.Textbox(placeholder="Just write something...", label=T["inf_prompt"], value=DEFAULT_CONFIG["inference"]["prompt"], lines=5)
+                with gr.Row():
+                    num_samples_box = gr.Number(label=T["inf_num_samples"], value=DEFAULT_CONFIG["inference"]["num_samples"])
+                    max_new_tokens_box = gr.Number(label=T["inf_max_new_tokens"], value=DEFAULT_CONFIG["inference"]["max_new_tokens"])
+                    temperature_box = gr.Number(label=T["inf_temperature"], value=DEFAULT_CONFIG["inference"]["temperature"])
+                    top_k_box = gr.Number(label=T["inf_top_k"], value=DEFAULT_CONFIG["inference"]["top_k"])
+                    seed_box_inf = gr.Number(label=T["inf_seed"], value=DEFAULT_CONFIG["inference"]["seed"], precision=0, interactive=True)
+                inf_btn = gr.Button(T["inf_start_btn"])
+                inf_output = gr.Textbox(label=T["inf_result"], lines=10)
+
+        # -----------------------------
+        # Data Processing Callback
+        # -----------------------------
+        def data_processing_cb(txt, ddir, rdir, pdir, sp, no_val, use_gpt2_tokenizer, num_proc_):
+            """
+            Callback for data processing button click.
+            """
+            try:
+                info = process_data(
+                    input_text=txt,
+                    input_dir=ddir,
+                    raw_data_dir=rdir,
+                    processed_data_dir=pdir,
+                    train_split_ratio=sp,
+                    no_validation=no_val,
+                    use_gpt2_tokenizer=use_gpt2_tokenizer,
+                    num_proc=int(num_proc_)
+                )
+                msg = (
+                    f"Processing complete! Data saved to {info['processed_data_dir']}.\n"
+                    f"Vocabulary size: {info['vocab_size']}.\n"
+                    f"Training set size: {info['train_size']}."
+                )
+                if 'val_size' in info and info['val_size'] is not None:
+                    msg += f"\nVal size: {info['val_size']}."
+                else:
+                    msg += "\nNo validation set created."
+                return msg
+            except Exception as e:
+                return f"Error: {str(e)}"
+
+        process_btn.click(
+            fn=data_processing_cb,
+            inputs=[input_text, txt_dir, raw_dir, processed_dir, train_split, no_val_set, use_gpt2, num_proc],
+            outputs=process_output
+        )
+
+        # Stop training button
+        stop_btn.click(fn=stop_training, inputs=[], outputs=[])
+
+        # -----------------------------
+        # LR Scheduler Callback
+        # -----------------------------
+        def update_lr_scheduler_params(scheduler_type):
+            """
+            根据选择的学习率调度器类型，更新相关参数的交互状态和值
+            """
+            # 初始化所有参数框的状态
+            warmup_update = gr.update(interactive=False, value="")
+            lr_decay_update = gr.update(interactive=False, value="")
+            min_lr_update = gr.update(interactive=False, value="")
+            step_size_update = gr.update(interactive=False, value="")
+            step_gamma_update = gr.update(interactive=False, value="")
+            polynomial_power_update = gr.update(interactive=False, value="")
+            
+            # 根据调度器类型设置相应参数框的状态
+            if scheduler_type == "none":
+                # 所有参数都不需要
+                pass
+            
+            elif scheduler_type == "cosine":
+                # 余弦调度器需要 warmup_iters, lr_decay_iters, min_lr
+                warmup_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["warmup_iters"]
+                )
+                lr_decay_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["lr_decay_iters"]
+                )
+                min_lr_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["min_lr"]
+                )
+                
+            elif scheduler_type == "constant_with_warmup":
+                # 常数调度器只需要 warmup_iters
+                warmup_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["warmup_iters"]
+                )
+                
+            elif scheduler_type == "linear":
+                # 线性调度器需要 warmup_iters, lr_decay_iters, min_lr
+                warmup_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["warmup_iters"]
+                )
+                lr_decay_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["lr_decay_iters"]
+                )
+                min_lr_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["min_lr"]
+                )
+                
+            elif scheduler_type == "step":
+                # 步长调度器需要 step_size, step_gamma
+                step_size_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["step_size"]
+                )
+                step_gamma_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["step_gamma"]
+                )
+                
+            elif scheduler_type == "polynomial":
+                # 多项式调度器需要所有参数
+                warmup_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["warmup_iters"]
+                )
+                lr_decay_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["lr_decay_iters"]
+                )
+                min_lr_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["min_lr"]
+                )
+                polynomial_power_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["polynomial_power"]
+                )
+                
+            return [
+                warmup_update,
+                lr_decay_update,
+                min_lr_update,
+                step_size_update,
+                step_gamma_update,
+                polynomial_power_update
+            ]
+        
+        # 连接学习率调度器下拉框的change事件到回调函数
+        lr_scheduler_box.change(
+            fn=update_lr_scheduler_params,
+            inputs=[lr_scheduler_box],
+            outputs=[
+                warmup_box,
+                lr_decay_box,
+                min_lr_box,
+                step_size_box,
+                step_gamma_box,
+                polynomial_power_box
+            ]
+        )
+
+        # -----------------------------
+        # Training Callback
+        # -----------------------------
+        def training_cb(
+            data_dir_, out_dir_, plot_interval_, log_interval_, num_eval_seeds_,
+            save_best_val_ckpt_, init_from_, grad_acc_, batch_size_, block_size_,
+            n_layer_, n_head_, n_embd_, dropout_, bias_,
+            lr_, max_iters_, weight_decay_, beta1_, beta2_,
+            lr_scheduler_type_, warmup_, lr_decay_, min_lr_,
+            step_size_, step_gamma_, polynomial_power_,
+            backend_, device_, dtype_, compile_,
+            seed_, save_interval_
+        ):
+            img_pil = None
+            try:
+                num_eval_seeds_int = int(num_eval_seeds_)
+                if num_eval_seeds_int < 0 or num_eval_seeds_int > 2**32 - 1:
+                    raise ValueError("Seed out of range.")
+            except ValueError as e:
+                yield (f"<div style='color:red;'>{str(e)}</div>", str(e), img_pil)
+                return
+
+            try:
+                seed_int = int(seed_)
+                if not (0 <= seed_int <= 2**32 - 1):
+                    raise ValueError("Seed out of range.")
+            except ValueError as e:
+                # If we are in eval-only mode (num_eval_seeds_ > 0) 
+                # we might skip seed check, but let's handle gracefully
+                if num_eval_seeds_int == 0:
+                    yield (f"<div style='color:red;'>{str(e)}</div>", str(e), img_pil)
+                seed_int = 0
+
+            try:
+                save_interval_int = int(save_interval_)
+                if save_interval_int < 0:
+                    raise ValueError("Save interval must be a non-negative integer.")
+            except ValueError as e:
+                if num_eval_seeds_int == 0:
+                    yield (f"<div style='color:red;'>{str(e)}</div>", str(e), img_pil)
+                save_interval_int = DEFAULT_CONFIG["training"]["save_interval"]
+
+            try:
+                gen = train_model_generator(
+                    data_dir=data_dir_,
+                    out_dir=out_dir_,
+                    plot_interval=int(plot_interval_),
+                    log_interval=int(log_interval_),
+                    num_eval_seeds=num_eval_seeds_int,
+                    save_best_val_checkpoint=bool(save_best_val_ckpt_),
+                    init_from=init_from_,
+                    gradient_accumulation_steps=int(grad_acc_),
+                    batch_size=int(batch_size_),
+                    block_size=int(block_size_),
+                    n_layer=int(n_layer_),
+                    n_head=int(n_head_),
+                    n_embd=int(n_embd_),
+                    dropout=float(dropout_),
+                    bias=bool(bias_),
+                    learning_rate=float(lr_),
+                    max_iters=int(max_iters_),
+                    weight_decay=float(weight_decay_),
+                    beta1=float(beta1_),
+                    beta2=float(beta2_),
+                    lr_scheduler_type=lr_scheduler_type_,
+                    warmup_iters=int(warmup_) if warmup_ else 0,
+                    lr_decay_iters=int(lr_decay_) if lr_decay_ else 0,
+                    min_lr=float(min_lr_) if min_lr_ else 0,
+                    step_size=int(step_size_) if step_size_ else 0,
+                    step_gamma=float(step_gamma_) if step_gamma_ else 0,
+                    polynomial_power=float(polynomial_power_) if polynomial_power_ else 0,
+                    backend=backend_,
+                    device=device_,
+                    dtype=dtype_,
+                    compile_model=bool(compile_),
+                    seed=seed_int,
+                    save_interval=save_interval_int
+                )
+                for (progress_html, log_html, img) in gen:
+                    # If progress_html indicates error, just handle it
+                    if isinstance(progress_html, str) and "Error" in progress_html:
+                        error_html = f"<div style='color: red;'>{progress_html}</div>"
+                        yield (error_html, log_html if log_html else "Error", img_pil)
+                        return
+                    yield (progress_html, log_html, img)
+
+            except Exception as e:
+                err_msg = f"An error occured: {str(e)}"
+                err_html = f"<div style='color:red;'>{err_msg}</div>"
+                yield (err_html, err_msg, img_pil)
+                return
+
+        train_btn.click(
+            fn=training_cb,
+            inputs=[
+                data_dir_box, out_dir_box, plot_interval_box, log_interval_box, num_eval_seeds_box,
+                save_best_val_ckpt_box, init_from_box, grad_acc_box, batch_size_box, block_size_box,
+                n_layer_box, n_head_box, n_embd_box, dropout_box, bias_box,
+                lr_box, max_iters_box, weight_decay_box, beta1_box, beta2_box,
+                lr_scheduler_box, warmup_box, lr_decay_box, min_lr_box,
+                step_size_box, step_gamma_box, polynomial_power_box,
+                backend_box, device_box, dtype_box, compile_box,
+                seed_box, save_interval_box
+            ],
+            outputs=[train_progress, train_log, train_plot]
+        )
+
+        # -----------------------------
+        # Inference Callback
+        # -----------------------------
+        def inference_cb(
+            data_dir_inf_, out_dir_inf_,
+            prompt_, num_samples_, max_new_tokens_, temperature_, top_k_, seed_inf_
+        ):
+            try:
+                num_samples_int = int(num_samples_)
+                if num_samples_int <= 0 or num_samples_int > 1000:
+                    yield "Error: Number of samples must be between 1 and 1000."
+                    return
+
+                # We accumulate partial generation states to display intermediate steps
+                accumulated_texts = [""] * num_samples_int
+
+                gen = generate_text(
+                    data_dir=data_dir_inf_,
+                    out_dir=out_dir_inf_,
+                    prompt=prompt_,
+                    num_samples=num_samples_int,
+                    max_new_tokens=int(max_new_tokens_),
+                    temperature=float(temperature_),
+                    top_k=int(top_k_) if top_k_ else None,
+                    seed=int(seed_inf_),
+                    device=DEFAULT_CONFIG["inference"]["device"],
+                    dtype=DEFAULT_CONFIG["inference"]["dtype"],
+                    compile_model=DEFAULT_CONFIG["inference"]["compile_model"]
+                )
+
+                current_sample_idx = 0
+                for output in gen:
+                    if output.startswith("Error"):
+                        yield output
+                        return
+                    if output.startswith("Sample"):
+                        parts = output.split(":\n", 1)
+                        if len(parts) == 2:
+                            sample_num = int(parts[0].split()[1]) - 1
+                            text_content = parts[1]
+                            if 0 <= sample_num < num_samples_int:
+                                accumulated_texts[sample_num] = text_content
+                    elif output.startswith("-" * 20):
+                        current_sample_idx += 1
+
+                    full_output = "\n\n".join([
+                        f"Sample {i+1}:\n{text}"
+                        for i, text in enumerate(accumulated_texts)
+                        if text.strip()
+                    ])
+                    if full_output.strip():
+                        yield full_output
+                    else:
+                        yield ""
+
+                final_output = "\n\n".join([
+                    f"Sample {i+1}:\n{text}"
+                    for i, text in enumerate(accumulated_texts)
+                    if text.strip()
+                ])
+                if final_output.strip():
+                    yield final_output
+                else:
+                    yield "No text generated."
+
+            except Exception as ex:
+                yield f"An error occured: {str(ex)}"
+
+        inf_btn.click(
+            fn=inference_cb,
+            inputs=[data_dir_inf, out_dir_inf, prompt_box, num_samples_box, max_new_tokens_box, temperature_box, top_k_box, seed_box_inf],
+            outputs=inf_output
+        )
+
+        # -----------------------------
+        # Language Switching
+        # -----------------------------
+        def switch_language(lang_code):
+            """
+            Dynamically switch the UI language. 
+            Re-initialize various UI components with new labels/values.
+            """
+            Tnew = LANG_JSON[lang_code]
+            return [
+                gr.update(value=lang_code, label=Tnew["language_label"]),
+                gr.update(label=Tnew["data_process_tab"]),
+                gr.update(label=Tnew["train_tab"]),
+                gr.update(label=Tnew["infer_tab"]),
+
+                gr.update(label=Tnew["dp_paste_text"]),
+                gr.update(label=Tnew["dp_txt_dir"]),
+                gr.update(label=Tnew["dp_raw_dir"], value=DEFAULT_CONFIG["data_process"]["raw_data_dir"]),
+                gr.update(label=Tnew["dp_processed_dir"], value=DEFAULT_CONFIG["data_process"]["processed_data_dir"]),
+                gr.update(label=Tnew["dp_train_split"], value=DEFAULT_CONFIG["data_process"]["train_split_ratio"]),
+                gr.update(label=Tnew["dp_no_val_set"], value=DEFAULT_CONFIG["data_process"]["no_validation"]),
+                gr.update(label=Tnew["dp_use_gpt2_tokenizer"], value=DEFAULT_CONFIG["data_process"]["use_gpt2_tokenizer"]),
+                gr.update(label=Tnew["dp_num_proc"], value=DEFAULT_CONFIG["data_process"]["num_proc"]),
+                gr.update(value=Tnew["dp_start_btn"]),
+                gr.update(label=Tnew["dp_result"]),
+
+                gr.update(value=f"### {Tnew['train_params_title']}", visible=True),
+                gr.update(label=Tnew["train_data_dir"], value=DEFAULT_CONFIG["training"]["data_dir"]),
+                gr.update(label=Tnew["train_out_dir"], value=DEFAULT_CONFIG["training"]["out_dir"]),
+                gr.update(label=Tnew["train_eval_interval"], value=DEFAULT_CONFIG["training"]["plot_interval"]),
+                gr.update(label=Tnew["train_log_interval"], value=DEFAULT_CONFIG["training"]["log_interval"]),
+                gr.update(label=Tnew["train_num_eval_seeds"], value=DEFAULT_CONFIG["training"]["num_eval_seeds"]),
+                gr.update(label=Tnew["train_save_best_val_ckpt"], value=DEFAULT_CONFIG["training"]["save_best_val_checkpoint"]),
+                gr.update(label=Tnew["train_init_from"], value=DEFAULT_CONFIG["training"]["init_from"]),
+                gr.update(label=Tnew["train_gas"], value=DEFAULT_CONFIG["training"]["gradient_accumulation_steps"]),
+                gr.update(label=Tnew["train_batch_size"], value=DEFAULT_CONFIG["training"]["batch_size"]),
+                gr.update(label=Tnew["train_block_size"], value=DEFAULT_CONFIG["training"]["block_size"]),
+                gr.update(label=Tnew["train_n_layer"], value=DEFAULT_CONFIG["training"]["n_layer"]),
+                gr.update(label=Tnew["train_n_head"], value=DEFAULT_CONFIG["training"]["n_head"]),
+                gr.update(label=Tnew["train_n_embd"], value=DEFAULT_CONFIG["training"]["n_embd"]),
+                gr.update(label=Tnew["train_dropout"], value=DEFAULT_CONFIG["training"]["dropout"]),
+                gr.update(label=Tnew["train_bias"], value=DEFAULT_CONFIG["training"]["bias"]),
+                gr.update(label=Tnew["train_lr"], value=DEFAULT_CONFIG["training"]["learning_rate"]),
+                gr.update(label=Tnew["train_max_iters"], value=DEFAULT_CONFIG["training"]["max_iters"]),
+                gr.update(label=Tnew["train_weight_decay"], value=DEFAULT_CONFIG["training"]["weight_decay"]),
+                gr.update(label=Tnew["train_beta1"], value=DEFAULT_CONFIG["training"]["beta1"]),
+                gr.update(label=Tnew["train_beta2"], value=DEFAULT_CONFIG["training"]["beta2"]),
+                gr.update(label=Tnew["train_lr_scheduler"], value=DEFAULT_CONFIG["training"]["lr_scheduler_type"]),
+                gr.update(label=Tnew["train_warmup_iters"], value=DEFAULT_CONFIG["training"]["warmup_iters"]),
+                gr.update(label=Tnew["train_lr_decay_iters"], value=DEFAULT_CONFIG["training"]["lr_decay_iters"]),
+                gr.update(label=Tnew["train_min_lr"], value=DEFAULT_CONFIG["training"]["min_lr"]),
+                gr.update(label=Tnew["train_backend"], value=DEFAULT_CONFIG["training"]["backend"]),
+                gr.update(label=Tnew["train_device"], value=DEFAULT_CONFIG["training"]["device"]),
+                gr.update(label=Tnew["train_dtype"], value=DEFAULT_CONFIG["training"]["dtype"]),
+                gr.update(label=Tnew["train_compile_model"], value=DEFAULT_CONFIG["training"]["compile_model"]),
+                gr.update(value=Tnew["train_start_btn"]),
+                gr.update(value=Tnew["stop_btn"]),
+                gr.update(label=Tnew["train_log"]),
+                gr.update(label=Tnew["train_plot"]),
+                gr.update(label=Tnew["train_seed"], value=DEFAULT_CONFIG["training"]["seed"]),
+                gr.update(label=Tnew["train_save_interval"], value=DEFAULT_CONFIG["training"]["save_interval"]),
+
+                gr.update(label=Tnew["dp_processed_dir"], value=DEFAULT_CONFIG["inference"]["data_dir"]),
+                gr.update(label=Tnew["inf_out_dir"], value=DEFAULT_CONFIG["inference"]["out_dir"]),
+                gr.update(label=Tnew["inf_prompt"], value=DEFAULT_CONFIG["inference"]["prompt"]),
+                gr.update(label=Tnew["inf_num_samples"], value=DEFAULT_CONFIG["inference"]["num_samples"]),
+                gr.update(label=Tnew["inf_max_new_tokens"], value=DEFAULT_CONFIG["inference"]["max_new_tokens"]),
+                gr.update(label=Tnew["inf_temperature"], value=DEFAULT_CONFIG["inference"]["temperature"]),
+                gr.update(label=Tnew["inf_top_k"], value=DEFAULT_CONFIG["inference"]["top_k"]),
+                gr.update(value=Tnew["inf_start_btn"]),
+                gr.update(label=Tnew["inf_result"], value=""),
+                gr.update(label=Tnew["inf_seed"], value=DEFAULT_CONFIG["inference"]["seed"])
+            ]
+
+        lang_select.change(
+            fn=switch_language,
+            inputs=[lang_select],
+            outputs=[
+                lang_select,
+                data_process_tab, train_tab, inf_tab,
+                input_text, txt_dir, raw_dir, processed_dir, train_split,
+                no_val_set, use_gpt2, num_proc, process_btn, process_output,
+                train_params_title_md,
+                data_dir_box, out_dir_box, plot_interval_box,
+                log_interval_box, num_eval_seeds_box,
+                save_best_val_ckpt_box, init_from_box, grad_acc_box,
+                batch_size_box, block_size_box, n_layer_box,
+                n_head_box, n_embd_box, dropout_box, bias_box,
+                lr_box, max_iters_box, weight_decay_box,
+                beta1_box, beta2_box, lr_scheduler_box,
+                warmup_box, lr_decay_box,
+                min_lr_box, backend_box, device_box,
+                dtype_box, compile_box, train_btn,
+                stop_btn, train_log, train_plot,
+                seed_box, save_interval_box,
+                data_dir_inf, out_dir_inf, prompt_box,
+                num_samples_box, max_new_tokens_box,
+                temperature_box, top_k_box, inf_btn, inf_output,
+                seed_box_inf
+            ]
+        )
+
+        # 初始化UI时，触发一次学习率调度器相关参数的更新
+        # 使用默认值进行一次初始化
+        default_scheduler = DEFAULT_CONFIG["training"]["lr_scheduler_type"]
+        
+        demo.load(
+            fn=lambda: update_lr_scheduler_params(default_scheduler),
+            inputs=None,
+            outputs=[
+                warmup_box,
+                lr_decay_box,
+                min_lr_box,
+                step_size_box,
+                step_gamma_box,
+                polynomial_power_box
+            ]
+        )
+
+    return demo
