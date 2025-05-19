@@ -236,96 +236,182 @@ def build_app_interface(selected_lang="zh"):
         stop_btn.click(fn=stop_training, inputs=[], outputs=[])
 
         # -----------------------------
+        # LR Scheduler Callback
+        # -----------------------------
+        def update_lr_scheduler_params(scheduler_type):
+            """
+            根据选择的学习率调度器类型，更新相关参数的交互状态和值
+            """
+            # 初始化所有参数框的状态为不可交互且值为空
+            warmup_update = gr.update(interactive=False, value="")
+            lr_decay_update = gr.update(interactive=False, value="")
+            min_lr_update = gr.update(interactive=False, value="")
+            step_size_update = gr.update(interactive=False, value="")
+            step_gamma_update = gr.update(interactive=False, value="")
+            polynomial_power_update = gr.update(interactive=False, value="")
+            
+            # 根据调度器类型设置相应参数框的状态
+            if scheduler_type == "none":
+                # 所有参数都不需要，保持空值
+                pass
+            
+            elif scheduler_type == "cosine":
+                # 余弦调度器需要 warmup_iters, lr_decay_iters, min_lr
+                warmup_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["warmup_iters"]
+                )
+                lr_decay_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["lr_decay_iters"]
+                )
+                min_lr_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["min_lr"]
+                )
+                
+            elif scheduler_type == "constant_with_warmup":
+                # 常数调度器只需要 warmup_iters
+                warmup_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["warmup_iters"]
+                )
+                
+            elif scheduler_type == "linear":
+                # 线性调度器需要 warmup_iters, lr_decay_iters, min_lr
+                warmup_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["warmup_iters"]
+                )
+                lr_decay_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["lr_decay_iters"]
+                )
+                min_lr_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["min_lr"]
+                )
+                
+            elif scheduler_type == "step":
+                # 步长调度器需要 step_size, step_gamma
+                step_size_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["step_size"]
+                )
+                step_gamma_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["step_gamma"]
+                )
+                
+            elif scheduler_type == "polynomial":
+                # 多项式调度器需要所有参数
+                warmup_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["warmup_iters"]
+                )
+                lr_decay_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["lr_decay_iters"]
+                )
+                min_lr_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["min_lr"]
+                )
+                polynomial_power_update = gr.update(
+                    interactive=True, 
+                    value=DEFAULT_CONFIG["training"]["polynomial_power"]
+                )
+                
+            return [
+                warmup_update,
+                lr_decay_update,
+                min_lr_update,
+                step_size_update,
+                step_gamma_update,
+                polynomial_power_update
+            ]
+        
+        # 连接学习率调度器下拉框的change事件到回调函数
+        lr_scheduler_box.change(
+            fn=update_lr_scheduler_params,
+            inputs=[lr_scheduler_box],
+            outputs=[
+                warmup_box,
+                lr_decay_box,
+                min_lr_box,
+                step_size_box,
+                step_gamma_box,
+                polynomial_power_box
+            ]
+        )
+
+        # -----------------------------
         # Training Callback
         # -----------------------------
         def training_cb(
             data_dir_, out_dir_, plot_interval_, log_interval_, num_eval_seeds_,
-            save_best_val_ckpt_, init_from_, grad_acc_, batch_size_, block_size_,
-            n_layer_, n_head_, n_embd_, dropout_, bias_,
-            lr_, max_iters_, weight_decay_, beta1_, beta2_,
-            lr_scheduler_type_, warmup_, lr_decay_, min_lr_,
+            save_best_val_ckpt_, init_from_,
+            grad_acc_, batch_size_, block_size_,
+            n_layer_, n_head_, n_embd_,
+            dropout_, bias_,
+            lr_, max_iters_, weight_decay_,
+            beta1_, beta2_,
+            lr_scheduler_type_, warmup_,
+            lr_decay_, min_lr_,
             step_size_, step_gamma_, polynomial_power_,
             backend_, device_, dtype_, compile_,
             seed_, save_interval_
         ):
             img_pil = None
             try:
+                # 添加的辅助函数，处理空字符串
+                def safe_int(v, default):
+                    return default if v == "" else int(v)
+                
+                def safe_float(v, default):
+                    return default if v == "" else float(v)
+                
+                # 使用默认配置获取默认值
+                defaults = DEFAULT_CONFIG["training"]
+                
                 num_eval_seeds_int = int(num_eval_seeds_)
-                if num_eval_seeds_int < 0 or num_eval_seeds_int > 2**32 - 1:
-                    raise ValueError("Seed out of range.")
+                if num_eval_seeds_int < 0 or num_eval_seeds_int > 2**32-1:
+                    raise ValueError("seed out of range")
             except ValueError as e:
-                yield (f"<div style='color:red;'>{str(e)}</div>", str(e), img_pil)
-                return
-
-            try:
-                seed_int = int(seed_)
-                if not (0 <= seed_int <= 2**32 - 1):
-                    raise ValueError("Seed out of range.")
-            except ValueError as e:
-                # If we are in eval-only mode (num_eval_seeds_ > 0) 
-                # we might skip seed check, but let's handle gracefully
-                if num_eval_seeds_int == 0:
-                    yield (f"<div style='color:red;'>{str(e)}</div>", str(e), img_pil)
-                seed_int = 0
-
-            try:
-                save_interval_int = int(save_interval_)
-                if save_interval_int < 0:
-                    raise ValueError("Save interval must be a non-negative integer.")
-            except ValueError as e:
-                if num_eval_seeds_int == 0:
-                    yield (f"<div style='color:red;'>{str(e)}</div>", str(e), img_pil)
-                save_interval_int = DEFAULT_CONFIG["training"]["save_interval"]
-
+                yield (f"<div style='color:red;'>{str(e)}</div>", str(e), img_pil); return
+        
             try:
                 gen = train_model_generator(
                     data_dir=data_dir_,
                     out_dir=out_dir_,
                     plot_interval=int(plot_interval_),
                     log_interval=int(log_interval_),
-                    num_eval_seeds=num_eval_seeds_int,
+                    num_eval_seeds=int(num_eval_seeds_),
                     save_best_val_checkpoint=bool(save_best_val_ckpt_),
                     init_from=init_from_,
                     gradient_accumulation_steps=int(grad_acc_),
-                    batch_size=int(batch_size_),
-                    block_size=int(block_size_),
-                    n_layer=int(n_layer_),
-                    n_head=int(n_head_),
-                    n_embd=int(n_embd_),
-                    dropout=float(dropout_),
-                    bias=bool(bias_),
-                    learning_rate=float(lr_),
-                    max_iters=int(max_iters_),
+                    batch_size=int(batch_size_), block_size=int(block_size_),
+                    n_layer=int(n_layer_), n_head=int(n_head_), n_embd=int(n_embd_),
+                    dropout=float(dropout_), bias=bool(bias_),
+                    learning_rate=float(lr_), max_iters=int(max_iters_),
                     weight_decay=float(weight_decay_),
-                    beta1=float(beta1_),
-                    beta2=float(beta2_),
+                    beta1=float(beta1_), beta2=float(beta2_),
                     lr_scheduler_type=lr_scheduler_type_,
-                    warmup_iters=int(warmup_),
-                    lr_decay_iters=int(lr_decay_),
-                    min_lr=float(min_lr_),
-                    step_size=int(step_size_),
-                    step_gamma=float(step_gamma_),
-                    polynomial_power=float(polynomial_power_),
-                    backend=backend_,
-                    device=device_,
-                    dtype=dtype_,
-                    compile_model=bool(compile_),
-                    seed=seed_int,
-                    save_interval=save_interval_int
+                    warmup_iters=safe_int(warmup_, defaults["warmup_iters"]),
+                    lr_decay_iters=safe_int(lr_decay_, defaults["lr_decay_iters"]),
+                    min_lr=safe_float(min_lr_, defaults["min_lr"]),
+                    step_size=safe_int(step_size_, defaults["step_size"]),
+                    step_gamma=safe_float(step_gamma_, defaults["step_gamma"]),
+                    polynomial_power=safe_float(polynomial_power_, defaults["polynomial_power"]),
+                    backend=backend_, device=device_, dtype=dtype_,
+                    compile_model=bool(compile_), seed=int(seed_), save_interval=int(save_interval_)
                 )
-                for (progress_html, log_html, img) in gen:
-                    # If progress_html indicates error, just handle it
-                    if isinstance(progress_html, str) and "Error" in progress_html:
-                        error_html = f"<div style='color: red;'>{progress_html}</div>"
-                        yield (error_html, log_html if log_html else "Error", img_pil)
-                        return
-                    yield (progress_html, log_html, img)
-
+                for p_html, log_html, img in gen:
+                    formatted_log = f"<div>{log_html}</div>"
+                    yield (p_html, log_html, img)
             except Exception as e:
-                err_msg = f"An error occured: {str(e)}"
-                err_html = f"<div style='color:red;'>{err_msg}</div>"
-                yield (err_html, err_msg, img_pil)
-                return
+                err = f"Error: {str(e)}"
+                yield (f"<div style='color:red;'>{err}</div>", err, img_pil)
 
         train_btn.click(
             fn=training_cb,
@@ -515,6 +601,25 @@ def build_app_interface(selected_lang="zh"):
                 num_samples_box, max_new_tokens_box,
                 temperature_box, top_k_box, inf_btn, inf_output,
                 seed_box_inf
+            ]
+        )
+
+        # 初始化UI时，触发一次学习率调度器相关参数的更新
+        # 使用默认值进行一次初始化
+        default_scheduler = DEFAULT_CONFIG["training"]["lr_scheduler_type"]
+        
+        # 不要直接使用update方法，而是通过一个dummy event处理初始化
+        # 这样gradio会在界面加载时正确应用这些更新
+        demo.load(
+            fn=lambda: update_lr_scheduler_params(default_scheduler),
+            inputs=None,
+            outputs=[
+                warmup_box,
+                lr_decay_box,
+                min_lr_box,
+                step_size_box,
+                step_gamma_box,
+                polynomial_power_box
             ]
         )
 
