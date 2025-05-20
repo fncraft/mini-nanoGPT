@@ -1,4 +1,4 @@
-[English](https://github.com/ystemsrx/mini-nanoGPT)
+[English](README.md) | [简体中文](README.zh.md)
 
 # Mini NanoGPT 🚀
 
@@ -12,7 +12,7 @@
 ### 1. 环境准备
 ```bash
 # 克隆仓库
-git clone --depth 1 https://github.com/ystemsrx/mini-nanoGPT.git
+git clone --depth 1 --branch old https://github.com/ystemsrx/mini-nanoGPT.git
 cd mini-nanogpt
 
 # 安装依赖（Python 3.7+）
