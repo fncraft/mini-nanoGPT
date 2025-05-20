@@ -1,40 +1,14 @@
-[中文](README.zh.md)
-
 # Mini NanoGPT 🚀
 
-#### Is Training a GPT Really This Simple?
+## This is the original *Mini nanoGPT* project, which is no longer maintained.
 
-> Make GPT model training simple and fun! A visual training platform based on [karpathy/nanoGPT](https://github.com/karpathy/nanoGPT).
-
-## 📖 What Is This?
-
-Mini-NanoGPT is a tool that helps you easily get started with GPT models. Whether you are:
-- 🎓 A deep learning beginner
-- 👨‍🔬 A researcher
-- 🛠️ A developer
-
-Or just someone interested in experiencing the charm of large models,
-
-You can train models through a simple graphical interface!
-
-> For enhanced model management capabilities, check out the [**database** branch](https://github.com/ystemsrx/mini-nanoGPT/tree/database).
-
-## ✨ Key Features
-
-### 1. Simple and Easy to Use
-- 📱 **Visual Interface**: Say goodbye to the command line and complete training with just a few clicks.
-- 🌍 **Bilingual (Chinese and English)**: Full support for both Chinese and English interfaces.
-- 🎯 **One-Click Operations**: Data processing, training, and text generation can all be done with a single click.
-
-### 2. Powerful Functionality
-- 🔤 **Flexible Tokenization**: Supports character-level, GPT-2, or Qwen tokenizers, with multilingual support.
-- 🚄 **Efficient Training**: Supports multi-processing acceleration and distributed training.
-- 📊 **Real-Time Feedback**: Displays training progress and results in real time.
-- ⚙️ **Parameter Visualization**: All training parameters can be directly adjusted in the interface.
+**The new version offers a more modern, real-time loss-curve plotting UI and capabilities, drastically reducing the time required for model training.**
+**It also introduces a database to store information, making the model easier to manage, enabling storage of historical training data, and allowing you to switch between and load different training sessions at any time.**
 
 ## 🚀 Quick Start
 
-### 1. Set Up the Environment
+### 1. Environment Setup
+
 ```bash
 # Clone the repository
 git clone --depth 1 https://github.com/ystemsrx/mini-nanoGPT.git
@@ -45,83 +19,68 @@ pip install -r requirements.txt
 ```
 
 ### 2. Launch the Project
+
 ```bash
 python main.py
 ```
-Open your browser and visit the displayed link to see the training interface! (Usually http://localhost:7860)
 
-## 🎮 User Guide
+Open your browser and navigate to the URL shown in the terminal (usually [http://localhost:7860](http://localhost:7860)) to access the training interface!
 
-### Step 1: Prepare Data
-- Open the "Data Processing" page, select or paste your training text, and choose the tokenization method. For better results, you can check the option to use a tokenizer, which will automatically build a vocabulary based on your text content.
-- If you do not want to use a validation set for now, you can check "Do not use a validation set."
-- After completion, click "Start Processing."
-  
-  Here's an example using a small piece of text:
-  
-![image](https://github.com/user-attachments/assets/667d1fb4-9f9a-4d3a-8574-894be7c71bc6)
+## 🎮 Usage Guide
 
+### Step 1: Prepare Your Data
+
+1. Go to the **Data Processing** page.
+2. Select or paste your training text and choose a tokenization method. For better results, check “Use tokenizer” to automatically build a vocabulary based on your text.
+3. If you don’t want to use a validation set for now, check “Skip validation set.”
+4. Click **Start Processing** when you’re ready.
+
+Here’s a small example:
+
+![Data Processing Example](https://github.com/user-attachments/assets/ec8db0d6-5673-43ae-a4cb-ac064f7209ae)
 
 ### Step 2: Train the Model
-- Switch to the "Training" page and adjust the parameters as needed (if you just want to experience it, you can keep the default values).
-- The program supports real-time display of loss curves for the training set and validation set. If you generated a validation set in Step 1, there should theoretically be two curves below: the blue one for the training set loss and the orange one for the validation set loss.
-- If only one curve is displayed, please check the terminal output. If you see output similar to:
-  ```
-  Error while evaluating val loss: Dataset too small: minimum dataset(val) size is 147, but block size is 512. Either reduce block size or add more data.
-  ```
-  It means that the block size you set is larger than your validation set. Please reduce its size, for example, to 128.
-- This way, you should be able to see two dynamically changing curves normally.
-- Click "Start Training" and wait for the model training to complete.
-  
-![image](https://github.com/user-attachments/assets/61b1f55e-5a9e-45e4-af9e-0c58f8a2be7e)
 
+1. Switch to the **Training** page. Adjust parameters as needed (the defaults are fine for a quick test).
+2. The UI will display live loss curves for both the training set and validation set. If you created a validation set in Step 1, you’ll see two curves: blue for training loss and orange for validation loss.
+3. If you only see one curve, check the console for an error like:
 
-#### Evaluation-Only Mode?
-- This mode allows you to evaluate the model's loss on the validation set. Set the `Number of Evaluation Seeds` to any value greater than 0 to enable evaluation-only mode. You can see the model's loss with different seeds.
+   ```txt
+   Error while evaluating val loss: Dataset too small: minimum dataset(val) size is 147, but block size is 512. Either reduce block size or add more data.
+   ```
+
+   This means your block size is larger than your validation set—try reducing it (e.g., to 128).
+4. Once both curves appear and update dynamically, click **Start Training** and wait for the process to complete.
+
+![Training Interface](https://github.com/user-attachments/assets/75e53570-393b-48db-aac3-f9b6822d05b1)
+
+#### Evaluation-Only Mode
+
+To run in evaluation-only mode (i.e., compute loss on validation set without training), set **Number of Evaluation Seeds** to a positive integer. The UI will then show the loss for different random seeds.
 
 ### Step 3: Generate Text
-1. Go to the "Inference" page
-2. Enter an opening text
-3. Click "Generate" to see what the model writes!
 
-![image](https://github.com/user-attachments/assets/dcebc48a-69c2-4008-b6b4-3fec060a75fb)
+1. Go to the **Inference** page.
+2. Enter a prompt (starting text).
+3. Click **Generate** to see what the model writes!
 
+![Inference Interface](https://github.com/user-attachments/assets/5f985e89-d7c2-4f3a-9500-5713497148cd)
 
 ## 📁 Project Structure
+
 ```
 mini-nanogpt/
-├── main.py          # Launch program
+├── main.py          # Entry point
 ├── config/          # Configuration files
 ├── data/            # Data processing and storage
-├── modules/         # Model definitions, Inference generation, Interface related
-└── trainer/         # Training-related        
+├── modules/         # Model definitions, inference & API
+└── trainer/         # Training logic
 ```
 
-## ❓ Frequently Asked Questions
-
-### What if it's running too slowly?
-- 💡 Reduce the `batch_size` or model size.
-- 💡 Using a GPU will significantly speed up the process.
-- 💡 Increase the evaluation interval.
-
-### The generated text isn't good enough?
-- 💡 Try increasing the amount of training data.
-- 💡 Adjust the model parameters appropriately.
-- 💡 Change the temperature parameter during generation.
-
-### Want to continue previous training?
-- 💡 On the "Training" page, select "resume" in the "Initialization Method."
-- 💡 Specify the previous output directory.
-
-## 🤝 Contributing
-Suggestions and improvements are welcome! You can contribute in the following ways:
-- Submit an Issue
-- Submit a Pull Request
-- Share your usage experience
-
 ## 📝 License
-This project is open-sourced under the [MIT License](LICENSE).
+
+This project is released under the [MIT License](LICENSE).
 
 ---
 
-🎉 **Start Your GPT Journey Now!**
+🎉 **Start your GPT journey now!**
