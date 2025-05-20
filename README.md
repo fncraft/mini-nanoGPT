@@ -5,6 +5,7 @@
 ## This is the original *Mini nanoGPT* project, which is no longer maintained.
 
 **The new version offers a more modern, real-time loss-curve plotting UI and capabilities, drastically reducing the time required for model training.**
+
 **It also introduces a database to store information, making the model easier to manage, enabling storage of historical training data, and allowing you to switch between and load different training sessions at any time.**
 
 ## 🚀 Quick Start
