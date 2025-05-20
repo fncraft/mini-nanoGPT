@@ -1,3 +1,5 @@
+[English](README.md) | [简体中文](README.zh.md)
+
 # Mini NanoGPT 🚀
 
 ## This is the original *Mini nanoGPT* project, which is no longer maintained.
@@ -11,7 +13,7 @@
 
 ```bash
 # Clone the repository
-git clone --depth 1 https://github.com/ystemsrx/mini-nanoGPT.git
+git clone --depth 1 --branch old https://github.com/ystemsrx/mini-nanoGPT.git
 cd mini-nanogpt
 
 # Install dependencies (Python 3.7+)
@@ -37,7 +39,7 @@ Open your browser and navigate to the URL shown in the terminal (usually [http:/
 
 Here’s a small example:
 
-![Data Processing Example](https://github.com/user-attachments/assets/ec8db0d6-5673-43ae-a4cb-ac064f7209ae)
+![image](https://github.com/user-attachments/assets/667d1fb4-9f9a-4d3a-8574-894be7c71bc6)
 
 ### Step 2: Train the Model
 
@@ -52,7 +54,7 @@ Here’s a small example:
    This means your block size is larger than your validation set—try reducing it (e.g., to 128).
 4. Once both curves appear and update dynamically, click **Start Training** and wait for the process to complete.
 
-![Training Interface](https://github.com/user-attachments/assets/75e53570-393b-48db-aac3-f9b6822d05b1)
+![image](https://github.com/user-attachments/assets/61b1f55e-5a9e-45e4-af9e-0c58f8a2be7e)
 
 #### Evaluation-Only Mode
 
@@ -64,7 +66,7 @@ To run in evaluation-only mode (i.e., compute loss on validation set without tra
 2. Enter a prompt (starting text).
 3. Click **Generate** to see what the model writes!
 
-![Inference Interface](https://github.com/user-attachments/assets/5f985e89-d7c2-4f3a-9500-5713497148cd)
+![image](https://github.com/user-attachments/assets/dcebc48a-69c2-4008-b6b4-3fec060a75fb)
 
 ## 📁 Project Structure
 
